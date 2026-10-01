@@ -1,0 +1,17 @@
+{
+  "name": "@underconnor/passport-discord",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Passport Discord identity linking and managed verification roles",
+  "license": "Apache-2.0",
+  "engines": { "node": ">=24 <25" },
+  "scripts": {
+    "start": "node src/main.js",
+    "check": "node scripts-check.js && npm test",
+    "test": "node --test test/*.test.js",
+    "commands:dry-run": "node src/commands.js --dry-run",
+    "commands:register": "node src/commands.js --register"
+  },
+  "dependencies": { "discord.js": "14.27.0" }
+}
