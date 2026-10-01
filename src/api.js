@@ -56,10 +56,11 @@ export class PassportApi {
     // Bind each returned job to the exact, validated settings used to claim it.
     // Role and nickname workers may fetch different revisions concurrently.
     const authorization = await this.configuration();
+    const limit = stream === 'roles' ? 10 : 4;
     const result = await this.post(`v2/discord/${stream}/claim`, {
-      contractVersion: 2, guildId: this.config.guildId, settingsRevision: authorization.settingsRevision, limit: 2,
+      contractVersion: 2, guildId: this.config.guildId, settingsRevision: authorization.settingsRevision, limit,
     });
-    if (!result || result.contractVersion !== 2 || !Array.isArray(result.jobs) || result.jobs.length > 2) throw new ApiError();
+    if (!result || result.contractVersion !== 2 || !Array.isArray(result.jobs) || result.jobs.length > limit) throw new ApiError();
     const ids = new Set();
     for (const job of result.jobs) {
       const expiry = Date.parse(job.expiresAt);

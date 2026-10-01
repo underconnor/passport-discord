@@ -36,8 +36,10 @@
 역할은 `POST /v2/discord/roles/claim`, 별명은 `POST /v2/discord/nicknames/claim`입니다.
 
 ```json
-{ "contractVersion": 2, "guildId": "100000000000000002", "settingsRevision": "1", "limit": 2 }
+{ "contractVersion": 2, "guildId": "100000000000000002", "settingsRevision": "1", "limit": 10 }
 ```
+
+역할 claim은 `limit:10`, 별명 claim은 `limit:4`를 보내며 응답도 요청한 상한을 넘으면 거절합니다.
 
 설정이 달라지면 409 `discord_settings_changed`이며 변경을 수행하지 않고 다음 tick에 설정부터 다시 읽습니다. 응답은 `{contractVersion:2,jobs:[...]}`입니다.
 
@@ -67,6 +69,6 @@
 
 성공은 204, 만료·오래된 lease/version은 409 `discord_lease_stale`입니다. ack에는 닉네임·ID 목록·원본 오류·자격 증명을 넣지 않습니다. 외부 요청이 lease 뒤에 끝나면 성공 ack를 보내지 않습니다.
 
-각 stream은 단일 진행 작업에서 최대 2개를 순차 처리합니다. Discord 요청 시작 시 5.5초 이상 lease가 남아 있어야 하며 개별 요청은 최대 5초입니다. 역할은 단일 PUT/DELETE, 별명은 `{nick:...}`만 PATCH하며 전체 역할 배열을 보내지 않습니다.
+각 stream은 한 번에 하나의 batch만 진행합니다. 역할은 최대 10개를 사용자별로 묶어 서로 다른 사용자 2명까지 병렬 처리하고 같은 사용자의 역할은 순차 처리합니다. 별명은 최대 4개를 순차 처리합니다. ack의 API 오류가 발생하면 새 작업을 시작하지 않고 이미 진행 중인 작업까지 기다린 뒤 해당 stream을 장애 상태로 표시합니다. Discord 요청 시작 시 5.5초 이상 lease가 남아 있어야 하며 개별 요청은 최대 5초입니다. 역할은 단일 PUT/DELETE, 별명은 `{nick:...}`만 PATCH하며 전체 역할 배열을 보내지 않습니다.
 
 성공 작업도 API가 다시 예약해 수동 변경·재가입·응답 유실에서 수렴합니다. Discord REST는 DB 트랜잭션이 아니므로 timeout 후 원격 변경을 취소했다고 가정하지 않습니다. 별명 PATCH 전 복원 원본을 비공개 로컬 journal에 기록하고, 불확실한 응답은 다음 조회에서 확인합니다. 역할/별명 작업·설정 revision·lease는 API DB가 보존합니다.

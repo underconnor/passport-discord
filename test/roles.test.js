@@ -31,11 +31,32 @@ test('lease is checked again before mutation after slow permission/member reads'
   let now=Date.now();const base=now;const t=transport({onGet:()=>{now+=19000;}});t.client.clock=()=>now;
   await assert.rejects(t.client.apply(job({expiresAt:new Date(base+60000).toISOString()})));assert.equal(t.writes.length,0);
 });
-test('worker is single-flight and sequential; applies only after valid claim and acknowledges version',async()=>{
+test('worker is single-flight and sequential for one user; acknowledges the claimed version',async()=>{
   let resolve,claims=0,active=0,peak=0;const acks=[];const jobs=[job(),job({id:'10000000-0000-4000-8000-000000000002'})];
   const api={claim:()=>{claims++;return new Promise(r=>{resolve=r;});},ack:async(j,outcome)=>acks.push([j.version,outcome])};
   const worker=new RoleWorker(api,{apply:async()=>{peak=Math.max(peak,++active);await Promise.resolve();active--;}},config,{log:()=>{}});
   const first=worker.tick();assert.equal(worker.tick(),first);assert.equal(claims,1);resolve(jobs);await first;assert.equal(peak,1);assert.deepEqual(acks,[['1','applied'],['1','applied']]);
+});
+test('parallel role work is bounded at two users and keeps each user in claim order',async()=>{
+  const jobs=Array.from({length:8},(_,index)=>job({id:`10000000-0000-4000-8000-${String(index+1).padStart(12,'0')}`,discordUserId:`1000000000000000${10+index%4}`}));
+  let active=0,peak=0;const inFlight=new Set(),order=[];
+  const worker=new RoleWorker({claim:async()=>jobs,ack:async()=>{}},{apply:async j=>{
+    assert.equal(inFlight.has(j.discordUserId),false);inFlight.add(j.discordUserId);peak=Math.max(peak,++active);order.push(j.id);
+    await new Promise(resolve=>setImmediate(resolve));active--;inFlight.delete(j.discordUserId);
+  }},config,{log:()=>{}});
+  await worker.tick();assert.equal(peak,2);assert.equal(order.length,8);
+  for(let index=0;index<4;index++)assert.ok(order.indexOf(jobs[index].id)<order.indexOf(jobs[index+4].id));
+});
+test('an ack outage keeps the tick in flight until the other mutation settles and skips new groups',async()=>{
+  let release,failedAck=false;const applied=[],acks=[];const jobs=[job(),job({id:'10000000-0000-4000-8000-000000000002',discordUserId:'100000000000000008'}),job({id:'10000000-0000-4000-8000-000000000003',discordUserId:'100000000000000009'})];
+  const worker=new RoleWorker({claim:async()=>jobs,ack:async j=>{acks.push(j.id);if(j.id===jobs[0].id){failedAck=true;throw Error('private');}}},{apply:async j=>{applied.push(j.id);if(j.id===jobs[1].id)await new Promise(resolve=>{release=resolve;});}},config,{log:()=>{}});
+  const first=worker.tick();await new Promise(resolve=>setImmediate(resolve));assert.ok(failedAck);assert.equal(worker.tick(),first);assert.equal(worker.pending,first);
+  release();await first;assert.deepEqual(applied,jobs.slice(0,2).map(j=>j.id));assert.equal(acks.length,2);assert.equal(worker.failed,true);assert.equal(worker.pending,null);
+});
+test('queued roles recheck lease time after another role consumes its user lane',async()=>{
+  let now=Date.now();const base=now,applied=[],acks=[];const jobs=[job({expiresAt:new Date(base+60000).toISOString()}),job({id:'10000000-0000-4000-8000-000000000002',expiresAt:new Date(base+10000).toISOString()})];
+  const worker=new RoleWorker({claim:async()=>jobs,ack:async(j,outcome)=>acks.push([j.id,outcome])},{apply:async j=>{applied.push(j.id);now=base+5000;}},config,{clock:()=>now,log:()=>{}});
+  await worker.tick();assert.deepEqual(applied,[jobs[0].id]);assert.deepEqual(acks.map(([,outcome])=>outcome),['applied','retry']);
 });
 test('failed mutations, stale acks and restart claims converge without treating failure as applied',async()=>{
   const outcomes=[];let claims=0;const api={claim:async()=>{claims++;return[job()];},ack:async(_j,outcome)=>{outcomes.push(outcome);if(claims===1)throw{status:409};}};

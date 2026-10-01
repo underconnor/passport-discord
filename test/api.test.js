@@ -41,7 +41,17 @@ test('v2 claims bind a fresh validated configuration and never trust a job-provi
   },()=>now);
   const first=(await api.claim())[0];revision='2';const second=(await api.claim())[0];
   assert.deepEqual(first.authorization.managedRoleIds,[config.roleId]);assert.equal(first.authorization.settingsRevision,'1');assert.equal(second.authorization.settingsRevision,'2');
-  assert.ok(Object.isFrozen(first.authorization.managedRoleIds));assert.deepEqual(calls[1].body,{contractVersion:2,guildId:config.guildId,settingsRevision:'1',limit:2});assert.equal(calls[0].method,'GET');
+  assert.ok(Object.isFrozen(first.authorization.managedRoleIds));assert.deepEqual(calls[1].body,{contractVersion:2,guildId:config.guildId,settingsRevision:'1',limit:10});assert.equal(calls[0].method,'GET');
+});
+test('role and nickname claim bounds reject oversized unique batches',async()=>{
+  for(const [stream,limit] of [['roles',10],['nicknames',4]]) {
+    let size=limit;const api=new PassportApi(config,async(url,options)=>{
+      if(url.pathname.endsWith('/config'))return Response.json(authorization);
+      assert.equal(JSON.parse(options.body).limit,limit);
+      return Response.json({contractVersion:2,jobs:Array.from({length:size},(_,index)=>({...job(),id:`10000000-0000-4000-8000-${String(index+1).padStart(12,'0')}`,nickname:'Example'}))});
+    },()=>now);
+    assert.equal((await api.claimStream(stream)).length,limit);size++;await assert.rejects(api.claimStream(stream));
+  }
 });
 test('invalid v2 configuration, legacy responses and stale revisions cannot authorize jobs',async()=>{
   for(const changes of [{contractVersion:1},{guildId:'100000000000000099'},{settingsRevision:'0'},{settingsRevision:'9223372036854775808'},{managedRoleIds:[config.guildId]},{managedRoleIds:[config.roleId,config.roleId]},{nicknameEnabled:'true'}]){
