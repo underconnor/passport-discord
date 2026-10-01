@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MessageFlags, PermissionFlagsBits, ButtonStyle } from 'discord.js';
-import { InteractionHandler, LINK_BUTTON } from '../src/interactions.js';
+import { InteractionHandler, LINK_BUTTON, panelMessage } from '../src/interactions.js';
 import { DiscordPanel } from '../src/panel.js';
 import { PanelStore } from '../src/panel-store.js';
 import { command, registerCommands } from '../src/commands.js';
@@ -20,7 +20,7 @@ test('button defers ephemerally before API work and uses only authenticated inte
   const handler=new InteractionHandler(config,{createLink:async body=>{assert.equal(i.messages[0][0],'defer');assert.equal(i.messages[0][1].flags,MessageFlags.Ephemeral);input=body;return{url};}},{});
   await handler.handle(i);assert.deepEqual(input,{discordUserId:i.user.id,guildId:config.guildId,discordUsername:'Synthetic',interactionId:i.id});
   const response=i.messages[1][1];assert.deepEqual(response.allowedMentions,{parse:[]});assert.equal(response.components[0].components[0].style,ButtonStyle.Link);assert.equal(response.components[0].components[0].url,url);
-  assert.ok(!JSON.stringify(i.messages[0]).includes(url));assert.equal(i.messages.filter(([method])=>method==='reply').length,0);
+  assert.equal(response.content,'');assert.equal(response.components[0].components[0].label,'u-saint 연동하기');assert.ok(!JSON.stringify(i.messages[0]).includes(url));assert.equal(i.messages.filter(([method])=>method==='reply').length,0);
 });
 test('wrong guild/channel, bot callers and foreign message authors never create links',async()=>{
   const handler=new InteractionHandler(config,{createLink:async()=>assert.fail('not authorized')},{});
@@ -52,4 +52,10 @@ test('durable panel state is scoped to configured guild/channel and contains no 
   const dir=await mkdtemp(join(tmpdir(),'passport-panel-test-'));const file=join(dir,'panel.json');
   try {const store=new PanelStore(file,config);assert.equal(await store.get(),null);await store.set('100000000000000009');assert.equal(await store.get(),'100000000000000009');assert.equal((await stat(file)).mode&0o777,0o600);assert.deepEqual(Object.keys(JSON.parse(await readFile(file,'utf8'))).sort(),['channelId','guildId','messageId']);await assert.rejects(new PanelStore(file,{...config,channelId:'100000000000000099'}).get());}
   finally {await rm(dir,{recursive:true});}
+});
+
+test('public panel and already-linked response use the requested exact copy without a new link',async()=>{
+  const message=panelMessage();assert.equal(message.content,'아래 버튼을 눌러 u-saint 연동을 진행해주세요');assert.equal(message.components[0].components[0].label,'u-saint 연동하기');
+  const i=interaction();await new InteractionHandler(config,{createLink:async()=>{throw {code:'discord_already_linked'};}},{},{log:()=>{}}).handle(i);
+  assert.equal(i.messages.at(-1)[1].content,'이미 usaint 계정과 연결된 Discord 계정입니다. 오류라고 생각되시면 관리자에게 문의해주세요.');assert.deepEqual(i.messages.at(-1)[1].components,[]);
 });

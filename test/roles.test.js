@@ -4,13 +4,14 @@ import { PermissionFlagsBits } from 'discord.js';
 import { DiscordTransport, rolePermissions } from '../src/discord-transport.js';
 import { RoleWorker } from '../src/role-worker.js';
 const config={guildId:'100000000000000002',roleId:'100000000000000003'};
+const authorization={contractVersion:2,guildId:config.guildId,settingsRevision:'1',managedRoleIds:[config.roleId],nicknameEnabled:true};
 const user='100000000000000005',bot='100000000000000006',botRole='100000000000000007';
 const roles=()=>[{id:config.guildId,position:0,permissions:'0'},{id:config.roleId,position:1,permissions:'0',managed:false},{id:botRole,position:2,permissions:PermissionFlagsBits.ManageRoles.toString()}];
-const job=(changes={})=>({id:'10000000-0000-4000-8000-000000000001',...config,guildId:config.guildId,discordUserId:user,roleId:config.roleId,leaseToken:'t'.repeat(43),version:'1',desired:true,expiresAt:new Date(Date.now()+60000).toISOString(),...changes});
+const job=(changes={})=>({id:'10000000-0000-4000-8000-000000000001',...config,guildId:config.guildId,discordUserId:user,roleId:config.roleId,leaseToken:'t'.repeat(43),version:'1',authorization,kind:'verification',semester:null,desired:true,expiresAt:new Date(Date.now()+60000).toISOString(),...changes});
 test('hierarchy, managed roles and missing Manage Roles fail closed',()=>{
-  const own={roles:[botRole]};assert.equal(rolePermissions(roles(),own,config).id,config.roleId);
-  for(const change of [{position:2},{managed:true}]){const values=roles();Object.assign(values[1],change);assert.throws(()=>rolePermissions(values,own,config),/Discord role operation failed/);}
-  assert.throws(()=>rolePermissions(roles(),{roles:[]},config));assert.throws(()=>rolePermissions(roles(),own,{...config,roleId:config.guildId}));
+  const own={roles:[botRole]};assert.equal(rolePermissions(roles(),own,config,config.roleId).id,config.roleId);
+  for(const change of [{position:2},{managed:true}]){const values=roles();Object.assign(values[1],change);assert.throws(()=>rolePermissions(values,own,config,config.roleId),/Discord reconciliation failed/);}
+  assert.throws(()=>rolePermissions(roles(),{roles:[]},config,config.roleId));assert.throws(()=>rolePermissions(roles(),own,config,config.guildId));
 });
 function transport({memberRoles=[],memberError,ownError,onGet=()=>{}}={}){
   const writes=[];const rest={get:async(route,options)=>{assert.ok(options.signal);onGet(route);if(route.endsWith('/roles'))return roles();if(route.endsWith(bot)){if(ownError)throw ownError;return{roles:[botRole]};}if(memberError)throw memberError;return{roles:memberRoles};},put:async(route,options)=>{assert.ok(options.signal);writes.push(['PUT',route]);},delete:async(route)=>writes.push(['DELETE',route])};
@@ -43,7 +44,7 @@ test('failed mutations, stale acks and restart claims converge without treating 
 });
 test('unknown role is configuration-error ack only, API outage never grants and repeated failures log once',async()=>{
   const acks=[],logs=[];let unavailable=false;const api={claim:async()=>{if(unavailable)throw new Error('sensitive');return[job({roleId:'100000000000000099'})];},ack:async(_j,outcome)=>acks.push(outcome)};
-  const worker=new RoleWorker(api,{apply:async()=>assert.fail('foreign role')},config,{log:code=>logs.push(code)});await worker.tick();assert.deepEqual(acks,['configuration_error']);unavailable=true;await worker.tick();await worker.tick();assert.deepEqual(logs,['role_configuration_error','api_unavailable']);
+  const worker=new RoleWorker(api,{apply:async()=>assert.fail('foreign role')},config,{log:code=>logs.push(code)});await worker.tick();assert.deepEqual(acks,['configuration_error']);unavailable=true;await worker.tick();await worker.tick();assert.deepEqual(logs,['role_configuration_error','role_api_unavailable']);
   worker.stop();const count=logs.length;await worker.tick();assert.equal(logs.length,count);
 });
 test('a lease that expires during an external mutation never sends a stale applied acknowledgement',async()=>{
@@ -81,4 +82,14 @@ test('real Discord REST transport rejects throttling immediately and enforces a 
     try{await assert.rejects(second.put(`/guilds/${config.guildId}/members/${user}/roles/${config.roleId}`));assert.ok(Date.now()-deadline>=4500);assert.ok(Date.now()-deadline<6200);}
     finally{second.clearHashSweeper();second.clearHandlerSweeper();}
   }finally{rest.clearHashSweeper();rest.clearHandlerSweeper();server.closeAllConnections();server.close();await once(server,'close');}
+});
+test('school, current-member, term and retiring role jobs each touch only their allowlisted role',async()=>{
+  const memberRole='100000000000000010',termRole='100000000000000011',retiredRole='100000000000000012';
+  const scope={...authorization,settingsRevision:'2',managedRoleIds:[config.roleId,memberRole,termRole,retiredRole]};
+  const values=roles();values.find(role=>role.id===botRole).position=5;
+  values.push(...[memberRole,termRole,retiredRole].map(id=>({id,position:1,permissions:'0',managed:false})));
+  const t=transport({memberRoles:[retiredRole,'100000000000000099']});const original=t.client.rest.get;t.client.rest.get=async(route,options)=>route.endsWith('/roles')?values:original(route,options);
+  for(const [roleId,kind,semester,desired] of [[config.roleId,'verification',null,true],[memberRole,'member',null,true],[termRole,'semester','26-2',true],[retiredRole,'member',null,false]])await t.client.apply(job({roleId,kind,semester,desired,authorization:scope}));
+  assert.deepEqual(t.writes.map(([method,path])=>[method,path.split('/').at(-1)]),[['PUT',config.roleId],['PUT',memberRole],['PUT',termRole],['DELETE',retiredRole]]);
+  await assert.rejects(t.client.apply(job({roleId:memberRole,authorization})),e=>e.code==='configuration_error');assert.equal(t.writes.length,4);
 });

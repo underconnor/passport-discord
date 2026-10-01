@@ -1,4 +1,5 @@
 import { readFileSync, statSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 export const snowflake = value => typeof value === 'string' && /^[1-9][0-9]{0,19}$/.test(value) && BigInt(value) <= 18446744073709551615n;
 export function secret(env, name) {
@@ -28,8 +29,15 @@ export function configFromEnv(env = process.env) {
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('configuration_invalid');
   const discordToken = secret(env, 'DISCORD_TOKEN'), apiToken = secret(env, 'PASSPORT_DISCORD_SERVICE_TOKEN');
   if (discordToken === apiToken || (env.API_SERVICE_TOKEN && env.API_SERVICE_TOKEN === apiToken)) throw new Error('configuration_invalid');
+  const stateFile = env.PASSPORT_STATE_FILE ?? '/data/panel.json';
+  const nicknameStateFile = env.PASSPORT_NICKNAME_STATE_FILE ?? '/data/nicknames.json';
+  if (resolve(stateFile) === resolve(nicknameStateFile)) throw new Error('configuration_invalid');
   return Object.freeze({ applicationId: env.DISCORD_APPLICATION_ID, guildId: env.DISCORD_GUILD_ID,
     roleId: env.DISCORD_MEMBER_ROLE_ID, channelId: env.DISCORD_SETUP_CHANNEL_ID,
     discordToken, apiToken, apiBase: api.href, webOrigin: web.origin,
-    stateFile: env.PASSPORT_STATE_FILE ?? '/data/panel.json', host: env.BIND_HOST ?? '127.0.0.1', port });
+    stateFile, nicknameStateFile, host: env.BIND_HOST ?? '127.0.0.1', port });
+}
+
+export function managedRole(scope, roleId) {
+  return scope?.contractVersion === 2 && Array.isArray(scope.managedRoleIds) && scope.managedRoleIds.includes(roleId) && roleId !== scope.guildId;
 }

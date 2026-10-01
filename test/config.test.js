@@ -8,7 +8,7 @@ import { safeLog } from '../src/safe-log.js';
 export const env = { DISCORD_APPLICATION_ID: '100000000000000001', DISCORD_GUILD_ID: '100000000000000002', DISCORD_MEMBER_ROLE_ID: '100000000000000003', DISCORD_SETUP_CHANNEL_ID: '100000000000000004', DISCORD_TOKEN: 'synthetic-discord-'.repeat(3), PASSPORT_DISCORD_SERVICE_TOKEN: 'synthetic-passport-'.repeat(3), PASSPORT_API_BASE_URL: 'https://api.example.test', PASSPORT_WEB_ORIGIN: 'https://portal.example.test' };
 test('valid config normalizes origin, enforces independent credentials and uint64 IDs', () => {
   assert.equal(configFromEnv(env).apiBase, 'https://api.example.test/');
-  for (const changes of [{ DISCORD_GUILD_ID: '0' }, { DISCORD_GUILD_ID: '18446744073709551616' }, { DISCORD_MEMBER_ROLE_ID: env.DISCORD_GUILD_ID }, { PASSPORT_DISCORD_SERVICE_TOKEN: env.DISCORD_TOKEN }, { API_SERVICE_TOKEN: env.PASSPORT_DISCORD_SERVICE_TOKEN }, { DISCORD_TOKEN: 'raw-secret\nheader' }]) assert.throws(() => configFromEnv({ ...env, ...changes }), /configuration_invalid/);
+  for (const changes of [{ DISCORD_GUILD_ID: '0' }, { DISCORD_GUILD_ID: '18446744073709551616' }, { DISCORD_MEMBER_ROLE_ID: env.DISCORD_GUILD_ID }, { PASSPORT_DISCORD_SERVICE_TOKEN: env.DISCORD_TOKEN }, { API_SERVICE_TOKEN: env.PASSPORT_DISCORD_SERVICE_TOKEN }, { DISCORD_TOKEN: 'raw-secret\nheader' }, { PASSPORT_NICKNAME_STATE_FILE: '/data/panel.json' }]) assert.throws(() => configFromEnv({ ...env, ...changes }), /configuration_invalid/);
   assert.ok(snowflake('18446744073709551615')); assert.ok(!snowflake('001'));
 });
 test('HTTPS required except explicit isolated opt-in; userinfo, query and web paths rejected', () => {

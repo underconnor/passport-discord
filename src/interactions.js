@@ -2,8 +2,8 @@ import { MessageFlags, PermissionFlagsBits, ButtonStyle, ComponentType } from 'd
 import { safeLog } from './safe-log.js';
 export const LINK_BUTTON = 'passport:link:v1';
 const noMentions = { parse: [] };
-export const panelMessage = () => ({ content: '숭실대학교 계정으로 소모임 회원 인증을 진행합니다.\n아래 버튼을 누르면 본인에게만 보이는 인증 링크가 표시됩니다. 연결 해제는 관리자에게 문의해 주세요.',
-  allowedMentions: noMentions, components: [{ type: ComponentType.ActionRow, components: [{ type: ComponentType.Button, style: ButtonStyle.Primary, custom_id: LINK_BUTTON, label: '연동하기' }] }] });
+export const panelMessage = () => ({ content: '아래 버튼을 눌러 u-saint 연동을 진행해주세요',
+  allowedMentions: noMentions, components: [{ type: ComponentType.ActionRow, components: [{ type: ComponentType.Button, style: ButtonStyle.Primary, custom_id: LINK_BUTTON, label: 'u-saint 연동하기' }] }] });
 export class InteractionHandler {
   constructor(config, api, panel, { clock = Date.now, log = safeLog } = {}) { this.config = config; this.api = api; this.panel = panel; this.clock = clock; this.log = log; this.cooldowns = new Map(); this.settingUp = false; }
   async handle(interaction) {
@@ -31,11 +31,11 @@ export class InteractionHandler {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const result = await this.api.createLink({ discordUserId: interaction.user.id, guildId: interaction.guildId,
         discordUsername: interaction.user.username, interactionId: interaction.id });
-      await interaction.editReply({ content: '본인만 사용할 수 있는 5분 유효 인증 링크입니다. 다른 사람에게 전달하지 마세요. 학교 로그인과 개인정보 동의 후 인증 역할이 적용됩니다.', allowedMentions: noMentions,
-        components: [{ type: ComponentType.ActionRow, components: [{ type: ComponentType.Button, style: ButtonStyle.Link, label: '본인 학교 계정으로 인증', url: result.url }] }] });
+      await interaction.editReply({ content: '', allowedMentions: noMentions,
+        components: [{ type: ComponentType.ActionRow, components: [{ type: ComponentType.Button, style: ButtonStyle.Link, label: 'u-saint 연동하기', url: result.url }] }] });
     } catch (error) {
       this.log(setup ? 'setup_failed' : 'interaction_failed');
-      const content = error?.code === 'discord_already_linked' ? '이미 학교 계정과 연결된 Discord 계정입니다. 역할 반영을 잠시 기다려 주세요. 연결 해제는 관리자에게 문의해 주세요.' : '인증 요청을 처리하지 못했습니다. 잠시 후 다시 시도하거나 관리자에게 문의해 주세요.';
+      const content = error?.code === 'discord_already_linked' ? '이미 usaint 계정과 연결된 Discord 계정입니다. 오류라고 생각되시면 관리자에게 문의해주세요.' : '인증 요청을 처리하지 못했습니다. 잠시 후 다시 시도하거나 관리자에게 문의해 주세요.';
       try { if (interaction.deferred || interaction.replied) await interaction.editReply({ content, components: [], allowedMentions: noMentions }); else await reply(content); } catch { /* Never log interaction tokens or Discord payloads. */ }
     }
   }

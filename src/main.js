@@ -7,14 +7,16 @@ import { InteractionHandler } from './interactions.js';
 import { DiscordPanel } from './panel.js';
 import { PanelStore } from './panel-store.js';
 import { RoleWorker } from './role-worker.js';
+import { NicknameWorker } from './nickname-worker.js';
+import { NicknameStore } from './nickname-store.js';
 import { safeLog } from './safe-log.js';
 
-let client, worker, server, timer, stopping = false;
+let client, server, timer, stopping = false; const workers = [];
 async function stop(code = 0) {
   if (stopping) return; stopping = true; safeLog('stopping');
-  clearInterval(timer); worker?.stop();
+  clearInterval(timer); for (const worker of workers) worker.stop();
   const deadline = setTimeout(() => process.exit(code), 10000); deadline.unref();
-  await worker?.pending?.catch(() => {}); await client?.destroy();
+  await Promise.allSettled(workers.map(worker => worker.pending)); await client?.destroy();
   server?.close(); process.exitCode = code;
 }
 process.on('SIGTERM', () => void stop()); process.on('SIGINT', () => void stop());
@@ -32,13 +34,15 @@ try {
   client.on(Events.ShardError, () => safeLog('gateway_unavailable'));
   client.once(Events.ClientReady, ready => {
     if (ready.application.id !== config.applicationId) { safeLog('configuration_invalid'); void stop(1); return; }
-    worker = new RoleWorker(api, new DiscordTransport(client.rest, config, ready.user.id), config);
-    void worker.tick(); timer = setInterval(() => { if (client.isReady() && !stopping) void worker.tick(); }, 5000); timer.unref();
+    const transport = new DiscordTransport(client.rest, config, ready.user.id, Date.now, new NicknameStore(config.nicknameStateFile, config));
+    workers.push(new RoleWorker(api, transport, config), new NicknameWorker(api, transport, config));
+    const tick = () => { if (client.isReady() && !stopping) for (const worker of workers) void worker.tick(); };
+    tick(); timer = setInterval(tick, 5000); timer.unref();
     safeLog('ready');
   });
   server = createServer((req, res) => {
     if (req.url !== '/healthz' || req.method !== 'GET') { res.writeHead(404).end(); return; }
-    const healthy = !stopping && client.isReady() && Boolean(worker?.isHealthy());
+    const healthy = !stopping && client.isReady() && workers.length === 2 && workers.every(worker => worker.isHealthy());
     res.writeHead(healthy ? 200 : 503, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }).end(JSON.stringify({ status: healthy ? 'ok' : 'degraded' }));
   });
   server.listen(config.port, config.host);
